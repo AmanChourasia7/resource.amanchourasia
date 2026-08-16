@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Optimize SVG files
@@ -23,9 +23,10 @@ jobs:
             --recursive \
             --folder . \
             --multipass \
-            --config=svgo.config.js
+            --pretty false \
+            --final-newline
 
-      - name: Commit optimized SVGs
+      - name: Commit changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -33,8 +34,9 @@ jobs:
           git add -- '*.svg'
 
           if git diff --cached --quiet; then
-            echo "No SVG changes."
-          else
-            git commit -m "Optimize SVG assets"
-            git push
+            echo "No SVG changes detected."
+            exit 0
           fi
+
+          git commit -m "Optimize SVG assets"
+          git push

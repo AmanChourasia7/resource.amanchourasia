@@ -14,16 +14,23 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
 
-      - name: Optimize SVGs
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: svg-optimizer-npm-${{ runner.os }}-${{ hashFiles('.github/workflows/optimize-svg.yml') }}
+          restore-keys: |
+            svg-optimizer-npm-${{ runner.os }}-
+
+      - name: Optimize all SVG files
         run: |
           npx --yes svgo@4 \
             --recursive \
@@ -39,7 +46,7 @@ jobs:
           git add -- '*.svg'
 
           if git diff --cached --quiet; then
-            echo "No SVG optimization changes."
+            echo "No SVG changes."
           else
             git commit -m "Optimize SVG assets"
             git push

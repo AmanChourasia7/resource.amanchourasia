@@ -1,0 +1,286 @@
+name: Generate Directory Indexes
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  generate-indexes:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate all directory indexes
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          from html import escape
+
+          ROOT = Path(".")
+
+          SKIP = {
+              ".git",
+              ".github"
+          }
+
+          def ignored(path):
+              return any(part in SKIP for part in path.parts)
+
+          for directory in sorted(ROOT.rglob("*")):
+              if not directory.is_dir():
+                  continue
+
+              if ignored(directory):
+                  continue
+
+              items = []
+
+              # Directories
+              for item in sorted(directory.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
+                  if item.name.startswith("."):
+                      continue
+
+                  if item.is_dir():
+                      if ignored(item):
+                          continue
+
+                      items.append(
+                          f'<li class="directory">'
+                          f'<span>📁</span> '
+                          f'<a href="{escape(item.name)}/">{escape(item.name)}/</a>'
+                          f'</li>'
+                      )
+
+                  elif item.name != "index.html":
+                      items.append(
+                          f'<li class="file">'
+                          f'<span>📄</span> '
+                          f'<a href="{escape(item.name)}">{escape(item.name)}</a>'
+                          f'</li>'
+                      )
+
+              # Do not create empty directory indexes
+              if not items:
+                  continue
+
+              title = "/" + str(directory).replace("\\", "/").replace("./", "")
+
+              if title == "/":
+                  title = "/"
+
+              html = f"""<!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+            <title>{escape(title)}</title>
+
+            <style>
+              * {{
+                box-sizing: border-box;
+              }}
+
+              body {{
+                margin: 0;
+                padding: 40px 20px;
+                font-family: Arial, sans-serif;
+                background: #fff;
+                color: #111;
+              }}
+
+              main {{
+                max-width: 1000px;
+                margin: auto;
+              }}
+
+              h1 {{
+                margin: 0 0 25px;
+                font-size: 28px;
+              }}
+
+              ul {{
+                list-style: none;
+                padding: 0;
+                margin: 0;
+              }}
+
+              li {{
+                padding: 10px 12px;
+                border-bottom: 1px solid #eee;
+              }}
+
+              li:hover {{
+                background: #f7f7f7;
+              }}
+
+              a {{
+                color: #1565c0;
+                text-decoration: none;
+              }}
+
+              a:hover {{
+                text-decoration: underline;
+              }}
+
+              .directory a {{
+                font-weight: 600;
+              }}
+
+              .file a {{
+                font-weight: 400;
+              }}
+
+              span {{
+                display: inline-block;
+                width: 25px;
+              }}
+            </style>
+          </head>
+
+          <body>
+            <main>
+              <h1>{escape(title)}</h1>
+
+              <ul>
+                {''.join(items)}
+              </ul>
+            </main>
+          </body>
+          </html>
+          """
+
+              (directory / "index.html").write_text(
+                  html,
+                  encoding="utf-8"
+              )
+
+          # Generate root index too
+          root_items = []
+
+          for item in sorted(
+              ROOT.iterdir(),
+              key=lambda p: (not p.is_dir(), p.name.lower())
+          ):
+              if item.name.startswith("."):
+                  continue
+
+              if item.is_dir() and item.name not in SKIP:
+                  root_items.append(
+                      f'<li class="directory">'
+                      f'<span>📁</span> '
+                      f'<a href="{escape(item.name)}/">{escape(item.name)}/</a>'
+                      f'</li>'
+                  )
+
+              elif item.is_file() and item.name != "index.html":
+                  root_items.append(
+                      f'<li class="file">'
+                      f'<span>📄</span> '
+                      f'<a href="{escape(item.name)}">{escape(item.name)}</a>'
+                      f'</li>'
+                  )
+
+          root_html = f"""<!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>/</title>
+
+            <style>
+              * {{
+                box-sizing: border-box;
+              }}
+
+              body {{
+                margin: 0;
+                padding: 40px 20px;
+                font-family: Arial, sans-serif;
+                background: #fff;
+                color: #111;
+              }}
+
+              main {{
+                max-width: 1000px;
+                margin: auto;
+              }}
+
+              h1 {{
+                margin: 0 0 25px;
+                font-size: 28px;
+              }}
+
+              ul {{
+                list-style: none;
+                padding: 0;
+                margin: 0;
+              }}
+
+              li {{
+                padding: 10px 12px;
+                border-bottom: 1px solid #eee;
+              }}
+
+              li:hover {{
+                background: #f7f7f7;
+              }}
+
+              a {{
+                color: #1565c0;
+                text-decoration: none;
+              }}
+
+              a:hover {{
+                text-decoration: underline;
+              }}
+
+              .directory a {{
+                font-weight: 600;
+              }}
+
+              span {{
+                display: inline-block;
+                width: 25px;
+              }}
+            </style>
+          </head>
+
+          <body>
+            <main>
+              <h1>/</h1>
+
+              <ul>
+                {''.join(root_items)}
+              </ul>
+            </main>
+          </body>
+          </html>
+          """
+
+          (ROOT / "index.html").write_text(
+              root_html,
+              encoding="utf-8"
+          )
+          PY
+
+      - name: Commit generated indexes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -- '**/index.html' 'index.html'
+
+          if git diff --cached --quiet; then
+            echo "No directory indexes changed."
+          else
+            git commit -m "Generate directory indexes"
+            git push
+          fi

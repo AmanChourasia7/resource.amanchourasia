@@ -10,149 +10,243 @@ permissions:
   contents: write
 
 jobs:
-  generate-indexes:
+  directory-index:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Generate all directory indexes
+      - name: Generate directory listings
         run: |
           python3 <<'PY'
           from pathlib import Path
+          from datetime import datetime, timezone
           from html import escape
+          import os
 
-          ROOT = Path(".")
+          ROOT = Path(".").resolve()
 
           SKIP = {
               ".git",
               ".github"
           }
 
-          def ignored(path):
+          def is_skipped(path):
               return any(part in SKIP for part in path.parts)
 
-          for directory in sorted(ROOT.rglob("*")):
-              if not directory.is_dir():
+          def format_size(size):
+              if size < 1024:
+                  return f"{size} B"
+              if size < 1024 * 1024:
+                  return f"{size / 1024:.1f} kB"
+              if size < 1024 * 1024 * 1024:
+                  return f"{size / (1024 * 1024):.1f} MB"
+              return f"{size / (1024 * 1024 * 1024):.1f} GB"
+
+          def format_date(timestamp):
+              dt = datetime.fromtimestamp(timestamp)
+              return dt.strftime("%-m/%-d/%y, %-I:%M:%S %p")
+
+          def relative_path(path):
+              return path.relative_to(ROOT).as_posix()
+
+          directories = [ROOT]
+
+          for directory in ROOT.rglob("*"):
+              if directory.is_dir() and not is_skipped(directory):
+                  directories.append(directory)
+
+          for directory in sorted(directories):
+              if is_skipped(directory):
                   continue
 
-              if ignored(directory):
+              entries = []
+
+              try:
+                  children = list(directory.iterdir())
+              except PermissionError:
                   continue
 
-              items = []
+              for item in children:
+                  if item.name == "index.html":
+                      continue
 
-              # Directories
-              for item in sorted(directory.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
                   if item.name.startswith("."):
                       continue
 
+                  if is_skipped(item):
+                      continue
+
+                  try:
+                      modified = item.stat().st_mtime
+                  except OSError:
+                      modified = 0
+
                   if item.is_dir():
-                      if ignored(item):
-                          continue
+                      entries.append({
+                          "name": item.name,
+                          "href": item.name + "/",
+                          "size": "",
+                          "date": format_date(modified),
+                          "directory": True
+                      })
 
-                      items.append(
-                          f'<li class="directory">'
-                          f'<span>📁</span> '
-                          f'<a href="{escape(item.name)}/">{escape(item.name)}/</a>'
-                          f'</li>'
-                      )
+                  elif item.is_file():
+                      entries.append({
+                          "name": item.name,
+                          "href": item.name,
+                          "size": format_size(item.stat().st_size),
+                          "date": format_date(modified),
+                          "directory": False
+                      })
 
-                  elif item.name != "index.html":
-                      items.append(
-                          f'<li class="file">'
-                          f'<span>📄</span> '
-                          f'<a href="{escape(item.name)}">{escape(item.name)}</a>'
-                          f'</li>'
-                      )
+              entries.sort(
+                  key=lambda x: (
+                      not x["directory"],
+                      x["name"].lower()
+                  )
+              )
 
-              # Do not create empty directory indexes
-              if not items:
-                  continue
+              rows = []
 
-              title = "/" + str(directory).replace("\\", "/").replace("./", "")
+              if directory != ROOT:
+                  rows.append("""
+          <tr>
+            <td class="icon">⬆️</td>
+            <td><a href="../">[parent directory]</a></td>
+            <td></td>
+            <td></td>
+          </tr>
+          """)
 
-              if title == "/":
+              for entry in entries:
+                  icon = "📁" if entry["directory"] else "📄"
+
+                  rows.append(f"""
+          <tr>
+            <td class="icon">{icon}</td>
+            <td><a href="{escape(entry["href"], quote=True)}">{escape(entry["name"])}{'/' if entry["directory"] else ''}</a></td>
+            <td>{entry["size"]}</td>
+            <td>{entry["date"]}</td>
+          </tr>
+          """)
+
+              path_name = relative_path(directory)
+
+              if path_name == ".":
                   title = "/"
+              else:
+                  title = "/" + path_name + "/"
 
               html = f"""<!DOCTYPE html>
           <html lang="en">
           <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-            <title>{escape(title)}</title>
+            <title>Index of {escape(title)}</title>
 
             <style>
-              * {{
-                box-sizing: border-box;
+              html, body {{
+                margin: 0;
+                padding: 0;
+                background: #ffffff;
+                color: #000000;
+                font-family: Arial, Helvetica, sans-serif;
+                font-size: 16px;
               }}
 
               body {{
-                margin: 0;
-                padding: 40px 20px;
-                font-family: Arial, sans-serif;
-                background: #fff;
-                color: #111;
-              }}
-
-              main {{
-                max-width: 1000px;
-                margin: auto;
+                padding: 8px;
               }}
 
               h1 {{
-                margin: 0 0 25px;
-                font-size: 28px;
+                margin: 0 0 14px 0;
+                font-size: 36px;
+                font-weight: bold;
               }}
 
-              ul {{
-                list-style: none;
-                padding: 0;
-                margin: 0;
+              hr {{
+                border: 0;
+                border-top: 1px solid #c0c0c0;
+                margin: 0 0 10px 0;
               }}
 
-              li {{
-                padding: 10px 12px;
-                border-bottom: 1px solid #eee;
+              table {{
+                border-collapse: collapse;
+                width: auto;
+                min-width: 1000px;
               }}
 
-              li:hover {{
-                background: #f7f7f7;
+              th {{
+                text-align: left;
+                font-weight: bold;
+                padding: 7px 12px;
+                white-space: nowrap;
+              }}
+
+              td {{
+                padding: 3px 12px 3px 0;
+                white-space: nowrap;
+                vertical-align: middle;
+              }}
+
+              td.icon {{
+                width: 28px;
+                padding-right: 2px;
+                font-size: 17px;
+              }}
+
+              td:nth-child(2) {{
+                min-width: 300px;
+              }}
+
+              td:nth-child(3) {{
+                min-width: 90px;
+                text-align: right;
+              }}
+
+              td:nth-child(4) {{
+                min-width: 190px;
+                padding-left: 30px;
               }}
 
               a {{
-                color: #1565c0;
-                text-decoration: none;
-              }}
-
-              a:hover {{
+                color: #0000ee;
                 text-decoration: underline;
               }}
 
-              .directory a {{
-                font-weight: 600;
+              a:visited {{
+                color: #551a8b;
               }}
 
-              .file a {{
-                font-weight: 400;
-              }}
-
-              span {{
-                display: inline-block;
-                width: 25px;
+              a:hover {{
+                color: #0000ee;
               }}
             </style>
           </head>
 
           <body>
-            <main>
-              <h1>{escape(title)}</h1>
 
-              <ul>
-                {''.join(items)}
-              </ul>
-            </main>
+          <h1>Index of {escape(title)}</h1>
+
+          <hr>
+
+          <table>
+            <thead>
+              <tr>
+                <th></th>
+                <th>Name</th>
+                <th>Size</th>
+                <th>Date modified</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {''.join(rows)}
+            </tbody>
+          </table>
+
           </body>
           </html>
           """
@@ -162,116 +256,9 @@ jobs:
                   encoding="utf-8"
               )
 
-          # Generate root index too
-          root_items = []
-
-          for item in sorted(
-              ROOT.iterdir(),
-              key=lambda p: (not p.is_dir(), p.name.lower())
-          ):
-              if item.name.startswith("."):
-                  continue
-
-              if item.is_dir() and item.name not in SKIP:
-                  root_items.append(
-                      f'<li class="directory">'
-                      f'<span>📁</span> '
-                      f'<a href="{escape(item.name)}/">{escape(item.name)}/</a>'
-                      f'</li>'
-                  )
-
-              elif item.is_file() and item.name != "index.html":
-                  root_items.append(
-                      f'<li class="file">'
-                      f'<span>📄</span> '
-                      f'<a href="{escape(item.name)}">{escape(item.name)}</a>'
-                      f'</li>'
-                  )
-
-          root_html = f"""<!DOCTYPE html>
-          <html lang="en">
-          <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>/</title>
-
-            <style>
-              * {{
-                box-sizing: border-box;
-              }}
-
-              body {{
-                margin: 0;
-                padding: 40px 20px;
-                font-family: Arial, sans-serif;
-                background: #fff;
-                color: #111;
-              }}
-
-              main {{
-                max-width: 1000px;
-                margin: auto;
-              }}
-
-              h1 {{
-                margin: 0 0 25px;
-                font-size: 28px;
-              }}
-
-              ul {{
-                list-style: none;
-                padding: 0;
-                margin: 0;
-              }}
-
-              li {{
-                padding: 10px 12px;
-                border-bottom: 1px solid #eee;
-              }}
-
-              li:hover {{
-                background: #f7f7f7;
-              }}
-
-              a {{
-                color: #1565c0;
-                text-decoration: none;
-              }}
-
-              a:hover {{
-                text-decoration: underline;
-              }}
-
-              .directory a {{
-                font-weight: 600;
-              }}
-
-              span {{
-                display: inline-block;
-                width: 25px;
-              }}
-            </style>
-          </head>
-
-          <body>
-            <main>
-              <h1>/</h1>
-
-              <ul>
-                {''.join(root_items)}
-              </ul>
-            </main>
-          </body>
-          </html>
-          """
-
-          (ROOT / "index.html").write_text(
-              root_html,
-              encoding="utf-8"
-          )
           PY
 
-      - name: Commit generated indexes
+      - name: Commit directory indexes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

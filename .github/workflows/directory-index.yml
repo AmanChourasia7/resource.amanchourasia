@@ -14,48 +14,62 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Generate directory listings
+      - name: Generate directory indexes
+        shell: bash
         run: |
           python3 <<'PY'
           from pathlib import Path
-          from datetime import datetime, timezone
+          from datetime import datetime
           from html import escape
-          import os
 
           ROOT = Path(".").resolve()
 
-          SKIP = {
+          SKIP_DIRECTORIES = {
               ".git",
               ".github"
           }
 
           def is_skipped(path):
-              return any(part in SKIP for part in path.parts)
+              return any(
+                  part in SKIP_DIRECTORIES
+                  for part in path.parts
+              )
 
           def format_size(size):
               if size < 1024:
                   return f"{size} B"
+
               if size < 1024 * 1024:
                   return f"{size / 1024:.1f} kB"
+
               if size < 1024 * 1024 * 1024:
                   return f"{size / (1024 * 1024):.1f} MB"
+
               return f"{size / (1024 * 1024 * 1024):.1f} GB"
 
           def format_date(timestamp):
-              dt = datetime.fromtimestamp(timestamp)
-              return dt.strftime("%-m/%-d/%y, %-I:%M:%S %p")
+              return datetime.fromtimestamp(
+                  timestamp
+              ).strftime("%m/%d/%y, %I:%M:%S %p").lstrip("0").replace(
+                  "/0", "/"
+              )
 
-          def relative_path(path):
-              return path.relative_to(ROOT).as_posix()
+          def directory_title(directory):
+              relative = directory.relative_to(ROOT)
+
+              if str(relative) == ".":
+                  return "/"
+
+              return "/" + relative.as_posix() + "/"
 
           directories = [ROOT]
 
-          for directory in ROOT.rglob("*"):
-              if directory.is_dir() and not is_skipped(directory):
-                  directories.append(directory)
+          for path in ROOT.rglob("*"):
+              if path.is_dir() and not is_skipped(path):
+                  directories.append(path)
 
           for directory in sorted(directories):
               if is_skipped(directory):
@@ -69,6 +83,7 @@ jobs:
                   continue
 
               for item in children:
+
                   if item.name == "index.html":
                       continue
 
@@ -79,32 +94,38 @@ jobs:
                       continue
 
                   try:
-                      modified = item.stat().st_mtime
+                      stat = item.stat()
+                      modified = format_date(stat.st_mtime)
                   except OSError:
-                      modified = 0
+                      modified = ""
 
                   if item.is_dir():
                       entries.append({
                           "name": item.name,
                           "href": item.name + "/",
                           "size": "",
-                          "date": format_date(modified),
+                          "modified": modified,
                           "directory": True
                       })
 
                   elif item.is_file():
+                      try:
+                          size = format_size(item.stat().st_size)
+                      except OSError:
+                          size = ""
+
                       entries.append({
                           "name": item.name,
                           "href": item.name,
-                          "size": format_size(item.stat().st_size),
-                          "date": format_date(modified),
+                          "size": size,
+                          "modified": modified,
                           "directory": False
                       })
 
               entries.sort(
-                  key=lambda x: (
-                      not x["directory"],
-                      x["name"].lower()
+                  key=lambda entry: (
+                      not entry["directory"],
+                      entry["name"].lower()
                   )
               )
 
@@ -112,103 +133,112 @@ jobs:
 
               if directory != ROOT:
                   rows.append("""
-          <tr>
-            <td class="icon">⬆️</td>
-            <td><a href="../">[parent directory]</a></td>
-            <td></td>
-            <td></td>
-          </tr>
+              <tr>
+                <td class="name">
+                  <a href="../">[parent directory]</a>
+                </td>
+                <td class="size"></td>
+                <td class="date"></td>
+              </tr>
           """)
 
               for entry in entries:
-                  icon = "📁" if entry["directory"] else "📄"
+                  name = escape(entry["name"])
+                  href = escape(entry["href"], quote=True)
+
+                  if entry["directory"]:
+                      display_name = name + "/"
+                  else:
+                      display_name = name
 
                   rows.append(f"""
-          <tr>
-            <td class="icon">{icon}</td>
-            <td><a href="{escape(entry["href"], quote=True)}">{escape(entry["name"])}{'/' if entry["directory"] else ''}</a></td>
-            <td>{entry["size"]}</td>
-            <td>{entry["date"]}</td>
-          </tr>
+              <tr>
+                <td class="name">
+                  <a href="{href}">{display_name}</a>
+                </td>
+                <td class="size">{entry["size"]}</td>
+                <td class="date">{entry["modified"]}</td>
+              </tr>
           """)
 
-              path_name = relative_path(directory)
-
-              if path_name == ".":
-                  title = "/"
-              else:
-                  title = "/" + path_name + "/"
+              title = escape(directory_title(directory))
 
               html = f"""<!DOCTYPE html>
           <html lang="en">
           <head>
             <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Index of {escape(title)}</title>
 
-            <style>
-              html, body {{
+            <title>Index of {title}</title>
+
+            <style type="text/css">
+
+              html,
+              body {{
                 margin: 0;
                 padding: 0;
+              }}
+
+              body {{
                 background: #ffffff;
                 color: #000000;
                 font-family: Arial, Helvetica, sans-serif;
                 font-size: 16px;
-              }}
-
-              body {{
                 padding: 8px;
               }}
 
               h1 {{
-                margin: 0 0 14px 0;
+                font-family: Arial, Helvetica, sans-serif;
                 font-size: 36px;
+                line-height: 42px;
+                margin: 0 0 8px 0;
+                padding: 0;
                 font-weight: bold;
               }}
 
               hr {{
+                height: 1px;
                 border: 0;
                 border-top: 1px solid #c0c0c0;
-                margin: 0 0 10px 0;
+                margin: 8px 0 12px 0;
+                padding: 0;
               }}
 
               table {{
                 border-collapse: collapse;
-                width: auto;
-                min-width: 1000px;
+                border-spacing: 0;
+                margin: 0;
+                padding: 0;
               }}
 
               th {{
-                text-align: left;
+                font-family: Arial, Helvetica, sans-serif;
+                font-size: 16px;
                 font-weight: bold;
-                padding: 7px 12px;
+                text-align: left;
+                padding: 2px 24px 6px 0;
                 white-space: nowrap;
               }}
 
               td {{
-                padding: 3px 12px 3px 0;
-                white-space: nowrap;
+                font-family: Arial, Helvetica, sans-serif;
+                font-size: 16px;
+                padding: 2px 24px 2px 0;
                 vertical-align: middle;
+                white-space: nowrap;
               }}
 
-              td.icon {{
-                width: 28px;
-                padding-right: 2px;
-                font-size: 17px;
-              }}
-
-              td:nth-child(2) {{
+              td.name {{
                 min-width: 300px;
               }}
 
-              td:nth-child(3) {{
+              td.size {{
                 min-width: 90px;
                 text-align: right;
               }}
 
-              td:nth-child(4) {{
+              td.date {{
                 min-width: 190px;
-                padding-left: 30px;
+                padding-left: 20px;
               }}
 
               a {{
@@ -222,30 +252,31 @@ jobs:
 
               a:hover {{
                 color: #0000ee;
+                text-decoration: underline;
               }}
+
             </style>
           </head>
 
           <body>
 
-          <h1>Index of {escape(title)}</h1>
+            <h1>Index of {title}</h1>
 
-          <hr>
+            <hr>
 
-          <table>
-            <thead>
-              <tr>
-                <th></th>
-                <th>Name</th>
-                <th>Size</th>
-                <th>Date modified</th>
-              </tr>
-            </thead>
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Size</th>
+                  <th>Date modified</th>
+                </tr>
+              </thead>
 
-            <tbody>
-              {''.join(rows)}
-            </tbody>
-          </table>
+              <tbody>
+                {''.join(rows)}
+              </tbody>
+            </table>
 
           </body>
           </html>
@@ -258,7 +289,8 @@ jobs:
 
           PY
 
-      - name: Commit directory indexes
+      - name: Commit generated indexes
+        shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -266,7 +298,7 @@ jobs:
           git add -- '**/index.html' 'index.html'
 
           if git diff --cached --quiet; then
-            echo "No directory indexes changed."
+            echo "No directory index changes."
           else
             git commit -m "Generate directory indexes"
             git push

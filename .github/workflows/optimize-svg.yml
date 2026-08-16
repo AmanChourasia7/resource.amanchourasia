@@ -17,26 +17,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Cache npm
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: svg-optimizer-npm-${{ runner.os }}-${{ hashFiles('.github/workflows/optimize-svg.yml') }}
-          restore-keys: |
-            svg-optimizer-npm-${{ runner.os }}-
-
-      - name: Optimize all SVG files
+      - name: Optimize SVG files
         run: |
           npx --yes svgo@4 \
             --recursive \
             --folder . \
             --multipass \
-            --final-newline
+            --config=svgo.config.js
 
       - name: Commit optimized SVGs
         run: |

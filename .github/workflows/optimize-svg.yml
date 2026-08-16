@@ -17,16 +17,34 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Optimize SVG files
-        run: |
-          npx --yes svgo@4 \
-            --recursive \
-            --folder . \
-            --multipass \
-            --pretty false \
-            --final-newline
+      - name: Install SVGO
+        run: npm install -g svgo@4
 
-      - name: Commit changes
+      - name: Optimize SVGs
+        shell: bash
+        run: |
+          set +e
+
+          find . -type f -name "*.svg" \
+            -not -path "./.git/*" \
+            -print0 |
+          while IFS= read -r -d '' file; do
+            echo "Optimizing: $file"
+
+            svgo \
+              --multipass \
+              --input "$file" \
+              --output "$file"
+
+            status=$?
+
+            if [ $status -ne 0 ]; then
+              echo "::warning file=$file::SVGO could not optimize this SVG. Original file kept."
+              git checkout -- "$file"
+            fi
+          done
+
+      - name: Commit optimized SVGs
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -34,9 +52,8 @@ jobs:
           git add -- '*.svg'
 
           if git diff --cached --quiet; then
-            echo "No SVG changes detected."
-            exit 0
+            echo "No SVG changes."
+          else
+            git commit -m "Optimize SVG assets"
+            git push
           fi
-
-          git commit -m "Optimize SVG assets"
-          git push

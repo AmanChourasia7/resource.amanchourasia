@@ -1,0 +1,132 @@
+      - name: Generate custom 404 page
+        run: |
+          cat > 404.html <<'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>File temporarily unavailable</title>
+
+            <style>
+              html, body {
+                margin: 0;
+                padding: 0;
+                background: #ffffff;
+                color: #000000;
+                font-family: Arial, Helvetica, sans-serif;
+              }
+
+              body {
+                padding: 24px;
+                max-width: 1000px;
+              }
+
+              h1 {
+                font-size: 32px;
+                margin: 0 0 16px;
+              }
+
+              p {
+                font-size: 16px;
+                line-height: 1.5;
+              }
+
+              code {
+                display: block;
+                padding: 12px;
+                margin: 16px 0;
+                background: #f4f4f4;
+                border: 1px solid #ddd;
+                word-break: break-all;
+              }
+
+              .warning {
+                margin-top: 20px;
+                padding: 16px;
+                border: 1px solid #ccc;
+                background: #fafafa;
+              }
+
+              .status {
+                margin-top: 20px;
+                font-weight: bold;
+              }
+            </style>
+          </head>
+
+          <body>
+
+            <h1>File temporarily unavailable</h1>
+
+            <p>
+              The requested file could not currently be served by the CDN.
+            </p>
+
+            <div class="warning">
+              <p>
+                If this file was recently uploaded or replaced, this is
+                usually caused by the GitHub Pages or CDN deployment
+                still propagating the new file.
+              </p>
+
+              <p>
+                Existing files normally continue to work while a newly
+                uploaded file may temporarily return this page.
+              </p>
+            </div>
+
+            <p>Requested file:</p>
+
+            <code id="requested-file"></code>
+
+            <p class="status" id="status">
+              Checking file availability...
+            </p>
+
+            <script>
+              const path = window.location.pathname;
+
+              document.getElementById("requested-file").textContent = path;
+
+              async function checkFile() {
+                const status = document.getElementById("status");
+
+                try {
+                  const response = await fetch(
+                    path + "?cdn_check=" + Date.now(),
+                    {
+                      method: "HEAD",
+                      cache: "no-store"
+                    }
+                  );
+
+                  if (response.ok) {
+                    status.textContent =
+                      "The file is now available. Reloading...";
+
+                    setTimeout(() => {
+                      window.location.replace(
+                        path + "?reload=" + Date.now()
+                      );
+                    }, 500);
+
+                    return;
+                  }
+
+                  status.textContent =
+                    "The file is not available yet. Retrying...";
+                } catch (error) {
+                  status.textContent =
+                    "The CDN could not be reached. Retrying...";
+                }
+
+                setTimeout(checkFile, 5000);
+              }
+
+              checkFile();
+            </script>
+
+          </body>
+          </html>
+          EOF

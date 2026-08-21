@@ -21,9 +21,8 @@ jobs:
         run: |
           python3 <<'PY'
           from pathlib import Path
-          from datetime import datetime, timezone
+          from datetime import datetime
           from html import escape
-          import os
 
           ROOT = Path(".").resolve()
 
@@ -38,10 +37,13 @@ jobs:
           def format_size(size):
               if size < 1024:
                   return f"{size} B"
+
               if size < 1024 * 1024:
                   return f"{size / 1024:.1f} kB"
+
               if size < 1024 * 1024 * 1024:
                   return f"{size / (1024 * 1024):.1f} MB"
+
               return f"{size / (1024 * 1024 * 1024):.1f} GB"
 
           def format_date(timestamp):
@@ -126,7 +128,11 @@ jobs:
                   rows.append(f"""
           <tr>
             <td class="icon">{icon}</td>
-            <td><a href="{escape(entry["href"], quote=True)}">{escape(entry["name"])}{'/' if entry["directory"] else ''}</a></td>
+            <td>
+              <a href="{escape(entry["href"], quote=True)}">
+                {escape(entry["name"])}{" /" if entry["directory"] else ""}
+              </a>
+            </td>
             <td>{entry["size"]}</td>
             <td>{entry["date"]}</td>
           </tr>
@@ -258,16 +264,144 @@ jobs:
 
           PY
 
-      - name: Commit directory indexes
+      - name: Generate diagnostic 404 page
+        run: |
+          cat > 404.html <<'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+            <title>404 - File Not Available Yet</title>
+
+            <style>
+              html,
+              body {
+                margin: 0;
+                padding: 0;
+                background: #ffffff;
+                color: #000000;
+                font-family: Arial, Helvetica, sans-serif;
+              }
+
+              body {
+                padding: 24px;
+              }
+
+              h1 {
+                font-size: 32px;
+                margin: 0 0 12px;
+              }
+
+              p {
+                font-size: 16px;
+                line-height: 1.5;
+                margin: 8px 0;
+              }
+
+              code {
+                display: block;
+                padding: 12px;
+                margin: 16px 0;
+                background: #f4f4f4;
+                border: 1px solid #ddd;
+                word-break: break-all;
+                font-family: monospace;
+              }
+
+              .status {
+                margin-top: 20px;
+                font-weight: bold;
+              }
+            </style>
+
+            <script>
+              let retryCount = 0;
+              const maxRetries = 12;
+
+              function getRequestedPath() {
+                return window.location.pathname;
+              }
+
+              function retryFile() {
+                if (retryCount >= maxRetries) {
+                  document.getElementById("status").textContent =
+                    "The file is still unavailable. The GitHub Pages deployment may not have propagated yet.";
+                  return;
+                }
+
+                retryCount++;
+
+                document.getElementById("status").textContent =
+                  "Checking again... attempt " + retryCount + " of " + maxRetries;
+
+                const separator = getRequestedPath().includes("?") ? "&" : "?";
+
+                setTimeout(function () {
+                  window.location.replace(
+                    getRequestedPath() +
+                    separator +
+                    "pages_retry=" +
+                    Date.now()
+                  );
+                }, 5000);
+              }
+
+              window.addEventListener("DOMContentLoaded", function () {
+                document.getElementById("requested-file").textContent =
+                  window.location.pathname;
+
+                retryFile();
+              });
+            </script>
+          </head>
+
+          <body>
+
+            <h1>404 - File Not Available Yet</h1>
+
+            <p>
+              GitHub Pages could not currently serve the requested file.
+            </p>
+
+            <p>
+              If this is a newly uploaded image, the file may still be
+              propagating through the GitHub Pages deployment infrastructure.
+            </p>
+
+            <p>Requested file:</p>
+
+            <code id="requested-file"></code>
+
+            <p id="status" class="status">
+              Checking again...
+            </p>
+
+          </body>
+          </html>
+          EOF
+
+      - name: Check generated files
+        run: |
+          echo "Generated directory indexes:"
+          find . -name "index.html" -not -path "./.git/*" | sort
+
+          echo ""
+          echo "404 page:"
+          test -f 404.html
+          ls -lh 404.html
+
+      - name: Commit directory indexes and 404 page
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add -- '**/index.html' 'index.html'
+          git add -- '**/index.html' 'index.html' '404.html'
 
           if git diff --cached --quiet; then
-            echo "No directory indexes changed."
+            echo "No generated files changed."
           else
-            git commit -m "Generate directory indexes"
+            git commit -m "Generate directory indexes and 404 page"
             git push
           fi

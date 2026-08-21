@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-  <title>404 - File Not Available Yet</title>
+  <title>File Not Available</title>
 
   <style>
     html,
@@ -18,17 +18,18 @@
 
     body {
       padding: 24px;
+      max-width: 1000px;
     }
 
     h1 {
+      margin: 0 0 16px;
       font-size: 32px;
-      margin: 0 0 12px;
     }
 
     p {
       font-size: 16px;
       line-height: 1.5;
-      margin: 8px 0;
+      margin: 10px 0;
     }
 
     code {
@@ -36,78 +37,133 @@
       padding: 12px;
       margin: 16px 0;
       background: #f4f4f4;
-      border: 1px solid #ddd;
+      border: 1px solid #d0d0d0;
       word-break: break-all;
       font-family: monospace;
+    }
+
+    .info {
+      margin: 20px 0;
+      padding: 16px;
+      border: 1px solid #cccccc;
+      background: #fafafa;
     }
 
     .status {
       margin-top: 20px;
       font-weight: bold;
     }
+
+    .small {
+      color: #555555;
+      font-size: 14px;
+    }
   </style>
-
-  <script>
-    let retryCount = 0;
-    const maxRetries = 12;
-
-    function getRequestedPath() {
-      return window.location.pathname;
-    }
-
-    function retryFile() {
-      if (retryCount >= maxRetries) {
-        document.getElementById("status").textContent =
-          "The file is still unavailable. The GitHub Pages deployment may not have propagated yet.";
-        return;
-      }
-
-      retryCount++;
-
-      document.getElementById("status").textContent =
-        "Checking again... attempt " + retryCount + " of " + maxRetries;
-
-      const separator = getRequestedPath().includes("?") ? "&" : "?";
-
-      setTimeout(function () {
-        window.location.replace(
-          getRequestedPath() +
-          separator +
-          "pages_retry=" +
-          Date.now()
-        );
-      }, 5000);
-    }
-
-    window.addEventListener("DOMContentLoaded", function () {
-      document.getElementById("requested-file").textContent =
-        window.location.pathname;
-
-      retryFile();
-    });
-  </script>
 </head>
 
 <body>
 
-  <h1>404 - File Not Available Yet</h1>
+  <h1>File Not Available</h1>
 
-  <p>
-    GitHub Pages could not currently serve the requested file.
-  </p>
+  <div class="info">
+    <p>
+      The requested file could not currently be served by the CDN.
+    </p>
 
-  <p>
-    If this is a newly uploaded image, the file may still be
-    propagating through the GitHub Pages deployment infrastructure.
-  </p>
+    <p>
+      If this file was recently uploaded, changed, or replaced,
+      GitHub Pages and the CDN may still be propagating the file.
+    </p>
+
+    <p>
+      This does not necessarily mean that the file is missing from
+      the GitHub repository.
+    </p>
+  </div>
 
   <p>Requested file:</p>
 
-  <code id="requested-file"></code>
+  <code id="requested-file">Loading...</code>
 
-  <p id="status" class="status">
-    Checking again...
+  <p class="status" id="status">
+    Checking file availability...
   </p>
+
+  <p class="small">
+    The page will automatically retry.
+  </p>
+
+  <script>
+    (() => {
+      const path = window.location.pathname;
+      const requestedFile = document.getElementById("requested-file");
+      const status = document.getElementById("status");
+
+      requestedFile.textContent = path;
+
+      let attempts = 0;
+      const maxAttempts = 24;
+      const retryDelay = 5000;
+
+      async function checkFile() {
+        attempts++;
+
+        status.textContent =
+          "Checking file availability... attempt " +
+          attempts +
+          " of " +
+          maxAttempts;
+
+        try {
+          const response = await fetch(
+            path + "?cdn_check=" + Date.now(),
+            {
+              method: "HEAD",
+              cache: "no-store",
+              redirect: "follow"
+            }
+          );
+
+          if (response.ok) {
+            status.textContent =
+              "File is now available. Reloading...";
+
+            setTimeout(() => {
+              window.location.replace(
+                path + "?reload=" + Date.now()
+              );
+            }, 500);
+
+            return;
+          }
+
+          if (response.status === 404) {
+            status.textContent =
+              "The file is not available yet. Retrying...";
+          } else {
+            status.textContent =
+              "The CDN returned HTTP " +
+              response.status +
+              ". Retrying...";
+          }
+
+        } catch (error) {
+          status.textContent =
+            "The CDN could not be reached. Retrying...";
+        }
+
+        if (attempts < maxAttempts) {
+          setTimeout(checkFile, retryDelay);
+        } else {
+          status.textContent =
+            "The file is still unavailable. " +
+            "If it was recently uploaded, GitHub Pages or CDN propagation may still be in progress.";
+        }
+      }
+
+      checkFile();
+    })();
+  </script>
 
 </body>
 </html>
